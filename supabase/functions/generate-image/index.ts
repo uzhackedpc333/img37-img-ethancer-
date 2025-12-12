@@ -72,14 +72,59 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    console.log("AI response received");
+    console.log("Full AI response:", JSON.stringify(data, null, 2));
 
-    const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    const textContent = data.choices?.[0]?.message?.content || "";
+    // Try multiple paths to extract the image
+    let imageUrl = null;
+    
+    // Path 1: Standard image array
+    if (data.choices?.[0]?.message?.images?.[0]?.image_url?.url) {
+      imageUrl = data.choices[0].message.images[0].image_url.url;
+      console.log("Found image via path 1 (images array)");
+    }
+    
+    // Path 2: Direct image_url in message
+    if (!imageUrl && data.choices?.[0]?.message?.image_url?.url) {
+      imageUrl = data.choices[0].message.image_url.url;
+      console.log("Found image via path 2 (direct image_url)");
+    }
+    
+    // Path 3: Content array with image
+    if (!imageUrl && Array.isArray(data.choices?.[0]?.message?.content)) {
+      const imageContent = data.choices[0].message.content.find(
+        (c: any) => c.type === "image_url" || c.type === "image"
+      );
+      if (imageContent?.image_url?.url) {
+        imageUrl = imageContent.image_url.url;
+        console.log("Found image via path 3 (content array)");
+      } else if (imageContent?.url) {
+        imageUrl = imageContent.url;
+        console.log("Found image via path 3b (content array direct url)");
+      }
+    }
+
+    // Path 4: Base64 in content
+    if (!imageUrl && typeof data.choices?.[0]?.message?.content === "string") {
+      const content = data.choices[0].message.content;
+      const base64Match = content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/);
+      if (base64Match) {
+        imageUrl = base64Match[0];
+        console.log("Found image via path 4 (base64 in content)");
+      }
+    }
+
+    const textContent = typeof data.choices?.[0]?.message?.content === "string" 
+      ? data.choices[0].message.content 
+      : "";
 
     if (!imageUrl) {
-      throw new Error("No image was generated");
+      console.error("No image found in response. Response structure:", Object.keys(data));
+      console.error("Choices structure:", data.choices?.[0] ? Object.keys(data.choices[0]) : "no choices");
+      console.error("Message structure:", data.choices?.[0]?.message ? Object.keys(data.choices[0].message) : "no message");
+      throw new Error("No image was generated. The AI model might be experiencing issues.");
     }
+
+    console.log("Successfully extracted image URL");
 
     return new Response(
       JSON.stringify({ 
